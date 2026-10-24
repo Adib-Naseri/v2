@@ -1,0 +1,130 @@
+name: Deploy to Cloudflare Workers
+
+# Manual-only deploy to *.workers.dev (no custom domain, ENABLE_CRON stays 0).
+#
+# Deliberately NOT triggered by push/pull_request: every deploy must be
+# started by hand (Actions -> "Deploy to Cloudflare Workers" -> Run workflow)
+# from `main` with the confirmation box ticked. If Cloudflare returns any
+# abuse/block/restriction error, STOP and use Cloudflare's review/appeal
+# process (see SECURITY_REVIEW.md). Do not retry with new projects/accounts.
+#
+# One-time setup — GitHub repo -> Settings -> Secrets and variables -> Actions:
+#   Secrets (encrypted; never put these in Variables or in chat):
+#     CLOUDFLARE_API_TOKEN   Scoped API token for the new approved account.
+#                            Create from the "Edit Cloudflare Workers" template
+#                            and ADD "D1: Edit" (needed to auto-provision the
+#                            database on first deploy). Scope to ONE account.
+#                            No Zone/DNS permissions are needed (workers.dev only).
+#                            Never use the Global API Key or your account password.
+#     ADMIN_PASSWORD         (only for the optional password step) Unique
+#                            random panel password, 14+ characters. NOT your
+#                            Cloudflare password.
+#   Variables (plain text — configuration only):
+#     CLOUDFLARE_ACCOUNT_ID  Account ID from the Cloudflare dashboard
+#                            (Workers & Pages page, right-hand sidebar).
+#                            (A Secret of the same name also works as fallback.)
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm_deploy:
+        description: "Deploy private-gateway-v2 to *.workers.dev? (Cron stays OFF, no custom domain)"
+        type: boolean
+        required: true
+        default: false
+      set_admin_password:
+        description: "Also set ADMIN_PASSWORD from the ADMIN_PASSWORD repo secret after deploy?"
+        type: boolean
+        required: true
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-private-gateway-v2
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    # Only allow deploys from main: merge and review first, then deploy.
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: production
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID || secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - name: Require explicit confirmation
+        if: inputs.confirm_deploy != true
+        run: |
+          echo "::error::Deployment not confirmed. Re-run this workflow and tick 'Deploy private-gateway-v2 to *.workers.dev?'."
+          exit 1
+
+      - name: Check required Secrets/Variables are present
+        run: |
+          missing=0
+          if [ -z "$CLOUDFLARE_API_TOKEN" ]; then
+            echo "::error::Missing Actions Secret CLOUDFLARE_API_TOKEN (Settings -> Secrets and variables -> Actions -> Secrets)."
+            missing=1
+          fi
+          if [ -z "$CLOUDFLARE_ACCOUNT_ID" ]; then
+            echo "::error::Missing CLOUDFLARE_ACCOUNT_ID — add it as an Actions Variable (or Secret) with your Cloudflare Account ID."
+            missing=1
+          fi
+          exit "$missing"
+
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+
+      # Uses the exact wrangler 4.152.0 pinned in package-lock.json, so CI
+      # deploys with the same CLI version that was verified locally.
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Syntax check + unit tests (must pass before deploy)
+        run: npm run check
+
+      - name: Bundle check (dry-run, uploads nothing)
+        env:
+          CLOUDFLARE_API_TOKEN: ""
+          CLOUDFLARE_ACCOUNT_ID: ""
+        run: npx wrangler deploy --dry-run --outdir .wrangler/dry-run
+
+      - name: Deploy Worker (auto-provisions D1 "private-gateway-v2" on first run)
+        env:
+          # Fail (rather than prompt) on resource provisioning in CI.
+          WRANGLER_CI_MATCH_TAG: "private-gateway-v2"
+        run: |
+          set -o pipefail
+          npx wrangler deploy 2>&1 | tee "$RUNNER_TEMP/wrangler-deploy.log"
+          {
+            echo "### Deploy output"
+            echo '```'
+            grep -E "workers\.dev|Version ID|Current Version ID" "$RUNNER_TEMP/wrangler-deploy.log" || true
+            echo '```'
+            echo "Open the workers.dev URL above, sign in, confirm shared path is /ws and Cron is OFF."
+            echo "Do NOT attach a custom domain yet. If Cloudflare returned a block/restriction error, STOP and use review/appeal."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Set ADMIN_PASSWORD Worker secret (optional)
+        if: inputs.set_admin_password
+        env:
+          # Passed via env + stdin (printf), never inline in the script or argv.
+          ADMIN_PASSWORD: ${{ secrets.ADMIN_PASSWORD }}
+        run: |
+          if [ -z "$ADMIN_PASSWORD" ]; then
+            echo "::error::Missing Actions Secret ADMIN_PASSWORD. Add it under Settings -> Secrets and variables -> Actions -> Secrets."
+            exit 1
+          fi
+          if [ "${#ADMIN_PASSWORD}" -lt 14 ]; then
+            echo "::error::ADMIN_PASSWORD must be at least 14 characters (got ${#ADMIN_PASSWORD})."
+            exit 1
+          fi
+          printf '%s' "$ADMIN_PASSWORD" | npx wrangler secret put ADMIN_PASSWORD --name private-gateway-v2
+          echo "ADMIN_PASSWORD set for Worker 'private-gateway-v2'." >> "$GITHUB_STEP_SUMMARY"
