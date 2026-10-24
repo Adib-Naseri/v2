@@ -1,0 +1,11 @@
+{
+  "notice": "Private migration input only. Do not commit real UUIDs; they are client credentials. This file is a schema example and contains no live identifiers.",
+  "users": [
+    {
+      "label": "Example phone",
+      "uuid": "00000000-0000-4000-8000-000000000001",
+      "periodDays": 30,
+      "trafficLimitGB": 50
+    }
+  ]
+}
