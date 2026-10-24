@@ -1,0 +1,30 @@
+{
+  "name": "private-gateway-v2",
+  "private": true,
+  "type": "module",
+  "engines": { "node": ">=22.0.0" },
+  "scripts": {
+    "check": "node --check src/index.js && node --check src/ui.js && node --check src/transport.js && node --check src/proxy-health.js && node --check src/schema.js && node --check src/core.js && node --test",
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy"
+  },
+  "dependencies": {
+    "workers-tls": "https://codeload.github.com/doedja/workers-tls/tar.gz/48d5488cd362d362b92b1d90622e9e3ea1c4e7ac"
+  },
+  "cloudflare": {
+    "bindings": {
+      "DB": {
+        "description": "D1 database for users, settings, quota counters, and proxy health. Provision through Cloudflare's supported deployment flow."
+      },
+      "ADMIN_PASSWORD": {
+        "description": "Strong unique admin password. Set as a Worker secret during deployment; do not reuse your Cloudflare login password."
+      },
+      "ENABLE_CRON": {
+        "description": "Optional. Set to 1 only after review to enable scheduled proxy health scans; default is off."
+      }
+    }
+  },
+  "devDependencies": {
+    "wrangler": "4.152.0"
+  }
+}

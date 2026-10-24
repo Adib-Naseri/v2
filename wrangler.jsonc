@@ -1,0 +1,16 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "private-gateway-v2",
+  "main": "src/index.js",
+  "compatibility_date": "2026-10-24",
+  "workers_dev": true,
+  "preview_urls": true,
+  "vars": { "ENABLE_CRON": "0" },
+  "d1_databases": [{ "binding": "DB" }],
+  "triggers": { "crons": ["*/15 * * * *"] },
+  "rules": [{ "type": "Text", "globs": ["**/*.pem"], "fallthrough": true }],
+  "observability": {
+    "enabled": true,
+    "logs": { "enabled": true, "invocation_logs": true, "head_sampling_rate": 1 }
+  }
+}
