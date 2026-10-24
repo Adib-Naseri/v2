@@ -6,7 +6,7 @@
   "workers_dev": true,
   "preview_urls": true,
   "vars": { "ENABLE_CRON": "0" },
-  "d1_databases": [{ "binding": "DB" }],
+  "d1_databases": [{ "binding": "DB", "database_name": "private-gateway-v2" }],
   "triggers": { "crons": ["*/15 * * * *"] },
   "rules": [{ "type": "Text", "globs": ["**/*.pem"], "fallthrough": true }],
   "observability": {
